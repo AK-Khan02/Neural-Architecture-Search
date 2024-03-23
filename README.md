@@ -38,7 +38,7 @@ Note: If you're using TensorFlow 2.x, Keras is included as `tensorflow.keras`. A
 
 ```python
 # To run the NAS, simply execute the script
-python enhanced_nas.py
+python NAS with Bayesian Optimization.py
 ```
 
 ## Example Output
