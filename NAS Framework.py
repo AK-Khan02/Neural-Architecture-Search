@@ -1,4 +1,7 @@
 import numpy as np
+from skopt import gp_minimize
+from skopt.space import Real, Integer
+from skopt.utils import use_named_args
 import tensorflow as tf
 from tensorflow.keras.datasets import mnist
 from tensorflow.keras.models import Sequential
@@ -6,46 +9,43 @@ from tensorflow.keras.layers import Dense, Flatten
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.utils import to_categorical
 
-# Load and preprocess the data
+# Load and preprocess the MNIST dataset
 (x_train, y_train), (x_test, y_test) = mnist.load_data()
-x_train, x_test = x_train / 255.0, x_test / 255.0  # Normalize data
-y_train, y_test = to_categorical(y_train, 10), to_categorical(y_test, 10)  # One-hot encode labels
+x_train, x_test = x_train / 255.0, x_test / 255.0
+y_train, y_test = to_categorical(y_train, 10), to_categorical(y_test, 10)
 
-def create_model(layers, units):
-    """Function to create a Keras model with varying layers and units."""
-    model = Sequential()
-    model.add(Flatten(input_shape=(28, 28)))
-    for _ in range(layers):
-        model.add(Dense(units, activation='relu'))
+# Define the space of hyperparameters to search
+space  = [Integer(1, 3, name='num_layers'),
+          Integer(32, 128, name='units_per_layer'),
+          Real(10**-5, 10**-1, "log-uniform", name='learning_rate')]
+
+# Function to create a model given a set of hyperparameters
+def create_model(num_layers, units_per_layer, learning_rate):
+    model = Sequential([Flatten(input_shape=(28, 28))])
+    for _ in range(num_layers):
+        model.add(Dense(units_per_layer, activation='relu'))
     model.add(Dense(10, activation='softmax'))
     
-    model.compile(optimizer=Adam(),
+    model.compile(optimizer=Adam(learning_rate=learning_rate),
                   loss='categorical_crossentropy',
                   metrics=['accuracy'])
     return model
 
-def evaluate_model(layers, units):
-    """Function to train and evaluate a model, returning its accuracy."""
-    model = create_model(layers, units)
+# Objective function to minimize
+@use_named_args(space)
+def objective(**params):
+    model = create_model(**params)
     model.fit(x_train, y_train, epochs=5, verbose=0)
     _, accuracy = model.evaluate(x_test, y_test, verbose=0)
-    return accuracy
+    # Negative accuracy because gp_minimize seeks to minimize the objective
+    return -accuracy
 
-# Search space
-layer_options = [1, 2, 3]
-unit_options = [32, 64, 128]
+# Run Bayesian Optimization
+res_gp = gp_minimize(objective, space, n_calls=15, random_state=0)
 
-best_acc = 0
-best_architecture = None
-
-# Search loop
-for layers in layer_options:
-    for units in unit_options:
-        acc = evaluate_model(layers, units)
-        print(f"Architecture: {layers} layers with {units} units - Accuracy: {acc:.4f}")
-        
-        if acc > best_acc:
-            best_acc = acc
-            best_architecture = (layers, units)
-
-print(f"\nBest Architecture: {best_architecture[0]} layers with {best_architecture[1]} units - Best Accuracy: {best_acc:.4f}")
+# Results
+print("Best score=%.4f" % res_gp.fun)
+print("""Best parameters:
+- num_layers=%d
+- units_per_layer=%d
+- learning_rate=%.6f""" % (res_gp.x[0], res_gp.x[1], res_gp.x[2]))
